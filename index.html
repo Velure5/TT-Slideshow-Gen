@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TikTok Slideshow Generator</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts - Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Apply Inter font to the body */
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased; /* Smoother fonts for macOS/iOS feel */
+            -moz-osx-font-smoothing: grayscale; /* Smoother fonts for macOS/iOS feel */
+        }
+        /* Styling for the canvas border and background */
+        canvas {
+            border: 1px solid #4a5568; /* Slightly lighter border for dark mode */
+            background-color: #000000; /* Black background for empty areas */
+            /* Added max-height and width to make it responsive on smaller screens */
+            max-width: 90vw; /* Max 90% of viewport width */
+            max-height: 80vh; /* Max 80% of viewport height to leave space for controls */
+            height: auto; /* Maintain aspect ratio */
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5); /* Stronger shadow for dark mode depth */
+        }
+
+        /* Ensure the canvas scales down for smaller screens */
+        @media (max-width: 768px) {
+            canvas {
+                width: 100%; /* Make canvas fill width on small screens */
+                height: calc(100vw * (1920 / 1080)); /* Maintain 9:16 aspect ratio */
+                max-height: 60vh; /* Adjust max height for mobile to fit controls */
+            }
+        }
+
+        /* Custom iOS-like button dynamics */
+        .ios-button {
+            transition: all 0.2s ease-in-out;
+            transform: translateZ(0); /* For smooth GPU acceleration */
+        }
+        .ios-button:hover {
+            transform: translateY(-2px); /* Slight lift on hover */
+            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.4); /* Enhanced shadow */
+        }
+        .ios-button:active {
+            transform: translateY(0); /* Press down effect */
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3); /* Subtle shadow when pressed */
+            filter: brightness(0.9); /* Slightly darken when pressed */
+        }
+
+        /* Custom styling for inputs to fit dark theme */
+        input[type="file"]::-webkit-file-upload-button {
+            background-color: #4f46e5; /* Indigo-600 */
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.2s ease-in-out;
+        }
+        input[type="file"]::-webkit-file-upload-button:hover {
+            background-color: #4338ca; /* Indigo-700 */
+        }
+    </style>
+</head>
+<body class="bg-gray-900 flex items-center justify-center min-h-screen p-4 text-gray-100">
+    <div class="bg-gray-800 rounded-xl shadow-2xl p-8 w-full max-w-2xl border border-gray-700">
+        <h1 class="text-4xl font-bold text-white mb-8 text-center drop-shadow-lg">TikTok Slideshow Generator</h1>
+
+        <!-- Image Upload Section -->
+        <div class="mb-6 bg-gray-700 p-4 rounded-lg shadow-inner">
+            <label class="block text-gray-200 text-sm font-bold mb-3" for="imageUpload">
+                Upload up to 20 Images (JPG, PNG)
+            </label>
+            <input
+                class="shadow appearance-none border border-gray-600 rounded-lg w-full py-3 px-4 bg-gray-900 text-gray-100 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                id="imageUpload" type="file" accept="image/*" multiple>
+            <p class="text-sm text-gray-400 mt-2">Images will be resized and cropped to fill the 9:16 vertical video frame for TikTok.</p>
+        </div>
+
+        <!-- Video Settings Section (Delay and Duration) -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div class="bg-gray-700 p-4 rounded-lg shadow-inner">
+                <label class="block text-gray-200 text-sm font-bold mb-3" for="imageDelay">
+                    Delay Between Images (seconds)
+                </label>
+                <input
+                    class="shadow appearance-none border border-gray-600 rounded-lg w-full py-3 px-4 bg-gray-900 text-gray-100 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    id="imageDelay" type="number" min="0" max="1" step="0.1" value="0.5">
+                <p class="text-sm text-gray-400 mt-2">Adjust time each image is shown (0 to 1 second).</p>
+            </div>
+            <div class="bg-gray-700 p-4 rounded-lg shadow-inner">
+                <label class="block text-gray-200 text-sm font-bold mb-3" for="videoDuration">
+                    Total Video Duration (seconds)
+                </label>
+                <input
+                    class="shadow appearance-none border border-gray-600 rounded-lg w-full py-3 px-4 bg-gray-900 text-gray-100 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    id="videoDuration" type="number" min="1" value="15">
+                <p class="text-sm text-gray-400 mt-2">The image sequence will loop to fill this duration.</p>
+            </div>
+        </div>
+
+        <!-- Canvas for Video Preview/Generation -->
+        <div class="mb-6 flex justify-center">
+            <canvas id="videoCanvas" width="1080" height="1920" class="rounded-lg"></canvas>
+        </div>
+
+        <!-- Generate Video Button -->
+        <div class="flex justify-center mb-6">
+            <button id="generateButton"
+                class="ios-button bg-gradient-to-br from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white font-bold py-3 px-8 rounded-full shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800">
+                Generate Video
+            </button>
+        </div>
+
+        <!-- Message Box for User Feedback -->
+        <div id="messageBox" class="text-center text-sm text-gray-400 mt-4 hidden p-3 bg-gray-700 rounded-lg"></div>
+
+        <!-- Download Area for Generated Video -->
+        <div id="downloadArea" class="mt-6 text-center hidden">
+            <a id="downloadLink"
+               class="ios-button bg-gradient-to-br from-green-500 to-emerald-700 hover:from-green-600 hover:to-emerald-800 text-white font-bold py-3 px-8 rounded-full shadow-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-gray-800"
+               download="tiktok_slideshow.mp4">
+                Download Video
+            </a>
+        </div>
+    </div>
+
+    <script>
+        // Get references to DOM elements
+        const imageUpload = document.getElementById('imageUpload');
+        const imageDelayInput = document.getElementById('imageDelay');
+        const videoDurationInput = document.getElementById('videoDuration');
+        const generateButton = document.getElementById('generateButton');
+        const videoCanvas = document.getElementById('videoCanvas');
+        const ctx = videoCanvas.getContext('2d'); // Get 2D rendering context
+        const messageBox = document.getElementById('messageBox');
+        const downloadArea = document.getElementById('downloadArea');
+        const downloadLink = document.getElementById('downloadLink');
+
+        // State variables
+        let uploadedImages = []; // Stores loaded HTMLImageElement objects
+        let videoRecorder;       // MediaRecorder instance
+        let animationFrameId;    // ID for requestAnimationFrame loop
+        let currentImageIndex = 0; // Index of the image currently being displayed
+        let lastFrameTime = 0;   // Timestamp of the last animation frame
+        let totalRecordedTime = 0; // Cumulative time for the video being generated
+        let videoDurationMillis = 0; // Total video duration in milliseconds
+        let imageDisplayDurationMillis = 0; // How long each image is displayed in milliseconds
+        let imageSequenceDurationMillis = 0; // Total time for one full loop of all images
+
+        const MAX_IMAGES = 20; // Maximum number of allowed images
+        const VIDEO_FPS = 30;  // Frames per second for the output video
+        // Define a higher bitrate for even better video quality (e.g., 8 Mbps for a 1080p vertical video)
+        const VIDEO_BITRATE = 8 * 1024 * 1024; // 8 Megabits per second
+
+        // Determine the preferred MIME type for video output
+        let preferredMimeType = 'video/mp4; codecs=avc1'; // H.264 codec
+        let fallbackMimeType = 'video/webm; codecs=vp9';
+        let outputExtension = 'mp4';
+
+        // Check if the browser supports the preferred MP4 format
+        if (!MediaRecorder.isTypeSupported(preferredMimeType)) {
+            preferredMimeType = fallbackMimeType; // Fallback to WebM
+            outputExtension = 'webm';
+            console.warn('MP4 (H.264) not fully supported by MediaRecorder in this browser. Falling back to WebM (VP9).');
+        }
+
+        /**
+         * Shows a message in the message box to provide user feedback.
+         * @param {string} message - The message text to display.
+         * @param {string} type - 'info', 'success', or 'error' to apply appropriate styling.
+         */
+        function showMessage(message, type = 'info') {
+            messageBox.textContent = message;
+            // Remove all previous type classes and show the message box
+            messageBox.classList.remove('hidden', 'text-blue-600', 'text-green-600', 'text-red-600', 'text-gray-400');
+            messageBox.classList.add('block'); // Ensure it's visible
+
+            if (type === 'info') messageBox.classList.add('text-blue-400'); /* Lighter blue for dark theme */
+            else if (type === 'success') messageBox.classList.add('text-green-400'); /* Lighter green */
+            else if (type === 'error') messageBox.classList.add('text-red-400'); /* Lighter red */
+            else messageBox.classList.add('text-gray-400'); /* Default text color */
+        }
+
+        /**
+         * Hides the message box.
+         */
+        function hideMessage() {
+            messageBox.classList.add('hidden');
+        }
+
+        /**
+         * Draws an image onto the canvas, scaling and cropping it to perfectly fill the 9:16 canvas.
+         * No black bars will be added; parts of the image may be cut off if aspect ratios don't match.
+         * @param {HTMLImageElement} image - The image object to draw.
+         */
+        function drawResizedImage(image) {
+            const canvasWidth = videoCanvas.width;
+            const canvasHeight = videoCanvas.height;
+            ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+            ctx.fillStyle = '#000000'; // Fill with black, though images should cover this now
+            ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+            const imageAspectRatio = image.width / image.height;
+            const canvasAspectRatio = canvasWidth / canvasHeight; // This is now 9/16
+
+            let sx, sy, sWidth, sHeight; // Source rectangle (portion of the image to draw)
+
+            if (imageAspectRatio > canvasAspectRatio) {
+                // Image is wider than the canvas aspect ratio (e.g., landscape image on portrait canvas)
+                // We need to crop the image horizontally to fit the canvas height.
+                sHeight = image.height;
+                sWidth = sHeight * canvasAspectRatio; // Calculate source width based on canvas aspect ratio
+                sx = (image.width - sWidth) / 2;      // Center horizontally in the source
+                sy = 0;
+            } else {
+                // Image is taller than or equal to canvas aspect ratio (e.g., portrait or square image on portrait canvas)
+                // We need to crop the image vertically to fit the canvas width.
+                sWidth = image.width;
+                sHeight = sWidth / canvasAspectRatio; // Calculate source height based on canvas aspect ratio
+                sx = 0;
+                sy = (image.height - sHeight) / 2;    // Center vertically in the source
+            }
+
+            // Draw the cropped source image onto the entire canvas area (destination rectangle)
+            // dx, dy, dWidth, dHeight correspond to the canvas's full dimensions (0, 0, canvasWidth, canvasHeight)
+            ctx.drawImage(image, sx, sy, sWidth, sHeight, 0, 0, canvasWidth, canvasHeight);
+        }
+
+        /**
+         * Handles the file selection event when images are uploaded.
+         * Loads images into memory and prepares them for display.
+         */
+        imageUpload.addEventListener('change', (event) => {
+            uploadedImages = []; // Clear previous images
+            downloadArea.classList.add('hidden'); // Hide download link
+            hideMessage(); // Clear any existing messages
+
+            const files = event.target.files;
+            if (files.length === 0) {
+                showMessage('No images selected.', 'info');
+                return;
+            }
+            if (files.length > MAX_IMAGES) {
+                showMessage(`Please select a maximum of ${MAX_IMAGES} images. You selected ${files.length}.`, 'error');
+                imageUpload.value = ''; // Clear the file input selection
+                return;
+            }
+
+            const filesArray = Array.from(files); // Convert FileList to an array
+            // Create an array to store images in their original selection order
+            let loadedImagesOrdered = new Array(filesArray.length);
+            let loadedCount = 0;
+
+            // Create an array of Promises, one for each image loading operation
+            const loadImagePromises = filesArray.map((file, index) => {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            loadedImagesOrdered[index] = img; // Place image at its original index
+                            loadedCount++;
+                            // Check if all images have finished loading
+                            if (loadedCount === filesArray.length) {
+                                uploadedImages = loadedImagesOrdered; // Assign the ordered array to uploadedImages
+                                if (uploadedImages.length > 0) {
+                                    drawResizedImage(uploadedImages[0]); // Draw the first image as a preview
+                                }
+                                showMessage(`${loadedCount} images loaded.`, 'success');
+                                resolve(); // Resolve the promise once all images are loaded
+                            }
+                        };
+                        img.onerror = () => {
+                            // Handle image loading errors
+                            showMessage(`Could not load image: ${file.name}`, 'error');
+                            reject();
+                        };
+                        img.src = e.target.result; // Set image source to the Data URL
+                    };
+                    reader.readAsDataURL(file); // Read file as Data URL
+                });
+            });
+
+            // Wait for all image loading promises to complete (or one to reject)
+            Promise.all(loadImagePromises)
+                .then(() => {
+                    // All images successfully loaded and ordered
+                })
+                .catch(() => {
+                    showMessage('Some images failed to load.', 'error');
+                });
+        });
+
+        /**
+         * The main animation loop that updates the canvas with images for video generation.
+         * It's responsible for drawing the correct image based on the elapsed video time.
+         * @param {DOMHighResTimeStamp} currentTime - The timestamp provided by requestAnimationFrame.
+         */
+        function animate(currentTime) {
+            // Initialize lastFrameTime if this is the first call
+            if (!lastFrameTime) {
+                lastFrameTime = currentTime;
+            }
+
+            // Calculate the desired interval for each video frame
+            const frameInterval = 1000 / VIDEO_FPS; // e.g., ~33.33ms for 30 FPS
+
+            // Check if enough time has passed to render the next video frame
+            // This ensures that the canvas updates at a rate consistent with the video's FPS
+            if (currentTime - lastFrameTime >= frameInterval) {
+                // Advance the 'conceptual' video time by one frame duration
+                totalRecordedTime += frameInterval;
+                lastFrameTime = currentTime; // Reset lastFrameTime for the next interval
+
+                // Check if the total video duration has been reached
+                if (totalRecordedTime >= videoDurationMillis) {
+                    // Stop the animation and the MediaRecorder
+                    cancelAnimationFrame(animationFrameId);
+                    if (videoRecorder && videoRecorder.state === 'recording') {
+                        videoRecorder.stop();
+                    }
+                    showMessage('Video generation complete!', 'success');
+                    return; // Exit the function as video generation is done
+                }
+
+                // If images are uploaded, determine and draw the current image
+                if (uploadedImages.length > 0) {
+                    // Calculate the effective time within one full sequence of images
+                    const effectiveTimeInSequence = totalRecordedTime % imageSequenceDurationMillis;
+
+                    // Calculate the current image index based on the effective time and individual image display duration
+                    currentImageIndex = Math.floor(effectiveTimeInSequence / imageDisplayDurationMillis);
+
+                    // Ensure the image index does not exceed the bounds of the uploadedImages array
+                    currentImageIndex = Math.min(currentImageIndex, uploadedImages.length - 1);
+
+                    // Draw the calculated current image to the canvas
+                    drawResizedImage(uploadedImages[currentImageIndex]);
+                } else {
+                    // If no images are present, stop everything and show an error
+                    cancelAnimationFrame(animationFrameId);
+                    if (videoRecorder && videoRecorder.state === 'recording') {
+                        videoRecorder.stop();
+                    }
+                    showMessage('No images to generate video from.', 'error');
+                    return;
+                }
+            }
+            // Request the next animation frame, regardless of whether a new image was drawn in this specific call.
+            // This ensures the loop continues to check for frame updates.
+            animationFrameId = requestAnimationFrame(animate);
+        }
+
+        /**
+         * Initiates the video generation process.
+         * Gathers user inputs, sets up MediaRecorder, and starts the animation loop.
+         */
+        generateButton.addEventListener('click', () => {
+            if (uploadedImages.length === 0) {
+                showMessage('Please upload images first.', 'error');
+                return;
+            }
+
+            // Get and validate user inputs
+            const imageDelay = parseFloat(imageDelayInput.value);
+            const videoDuration = parseFloat(videoDurationInput.value);
+
+            if (isNaN(imageDelay) || imageDelay < 0 || imageDelay > 1) {
+                showMessage('Please enter a valid image delay between 0 and 1 seconds.', 'error');
+                return;
+            }
+            if (isNaN(videoDuration) || videoDuration < 1) {
+                showMessage('Please enter a valid video duration (minimum 1 second).', 'error');
+                return;
+            }
+
+            // Convert durations to milliseconds
+            videoDurationMillis = videoDuration * 1000;
+            imageDisplayDurationMillis = imageDelay * 1000;
+
+            // If image delay is 0, set a minimum display duration per image to ensure it's visible for at least one frame
+            if (imageDisplayDurationMillis === 0) {
+                imageDisplayDurationMillis = 1000 / VIDEO_FPS;
+            }
+
+            // Calculate the total duration for one full sequence of all images
+            imageSequenceDurationMillis = uploadedImages.length * imageDisplayDurationMillis;
+
+            // Handle edge case where sequence duration might be zero (e.g., no images or zero calculated duration)
+            if (imageSequenceDurationMillis === 0) {
+                 showMessage('Cannot generate video with current settings. Please ensure images are loaded and delay is valid.', 'error');
+                 return;
+            }
+
+
+            showMessage('Generating video... Please wait. This may take a moment.', 'info');
+            // Disable UI elements during generation
+            generateButton.disabled = true;
+            imageUpload.disabled = true;
+            imageDelayInput.disabled = true;
+            videoDurationInput.disabled = true;
+            downloadArea.classList.add('hidden'); // Hide previous download link
+
+            // Reset state for a new recording session
+            currentImageIndex = 0;
+            lastFrameTime = 0;
+            totalRecordedTime = 0;
+            // Cancel any previously running animation frame
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+            }
+
+            // --- MediaRecorder Setup ---
+            // Get a MediaStream from the canvas, setting the desired FPS for the video output
+            const stream = videoCanvas.captureStream(VIDEO_FPS);
+            // Define recording options based on supported MIME type, including a higher bitrate
+            const options = { mimeType: preferredMimeType, videoBitsPerSecond: VIDEO_BITRATE };
+
+            const chunks = []; // Array to store video data chunks
+
+            // Create a new MediaRecorder instance
+            videoRecorder = new MediaRecorder(stream, options);
+
+            // Event handler for when data chunks are available
+            videoRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    chunks.push(event.data);
+                }
+            };
+
+            // Event handler for when the recording stops
+            videoRecorder.onstop = () => {
+                // Create a Blob from the collected data chunks
+                const blob = new Blob(chunks, { type: preferredMimeType });
+                // Create a URL for the Blob
+                const videoUrl = URL.createObjectURL(blob);
+                downloadLink.href = videoUrl; // Set the download link's href
+                downloadLink.download = `tiktok_slideshow.${outputExtension}`; // Set the download filename
+                downloadArea.classList.remove('hidden'); // Show the download area
+                showMessage(`Video generated successfully as .${outputExtension}! Click "Download Video" below.`, 'success');
+                // Re-enable UI elements
+                generateButton.disabled = false;
+                imageUpload.disabled = false;
+                imageDelayInput.disabled = false;
+                videoDurationInput.disabled = false;
+            };
+
+            // Event handler for recording errors
+            videoRecorder.onerror = (event) => {
+                console.error('MediaRecorder error:', event);
+                showMessage('An error occurred during video recording. Please try again.', 'error');
+                // Re-enable UI elements on error
+                generateButton.disabled = false;
+                imageUpload.disabled = false;
+                imageDelayInput.disabled = false;
+                videoDurationInput.disabled = false;
+            };
+
+            // Start the MediaRecorder, indicating that data should be collected at the desired frame rate
+            videoRecorder.start(1000 / VIDEO_FPS); // Collect data every X milliseconds
+            // Start the requestAnimationFrame loop which drives the canvas drawing
+            animationFrameId = requestAnimationFrame(animate);
+        });
+
+        // Initial drawing on the canvas when the page loads
+        ctx.clearRect(0, 0, videoCanvas.width, videoCanvas.height);
+        ctx.fillStyle = '#000000'; // Set background color to black
+        ctx.fillRect(0, 0, videoCanvas.width, videoCanvas.height);
+        ctx.font = '30px Inter'; // Set font for placeholder text
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#9ca3af'; /* Gray-400 for dark mode */
+        ctx.fillText('Upload images to start', videoCanvas.width / 2, videoCanvas.height / 2 - 30);
+        ctx.font = '22px Inter';
+        ctx.fillText('(Images will fill the 9:16 frame)', videoCanvas.width / 2, videoCanvas.height / 2 + 10);
+    </script>
+</body>
+</html>
