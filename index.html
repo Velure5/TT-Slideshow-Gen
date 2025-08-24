@@ -8,6 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Google Fonts - Inter -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- JSZip for handling zip files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         /* Apply Inter font to the body */
         body {
@@ -68,15 +70,38 @@
 <body class="bg-gray-900 flex items-center justify-center min-h-screen p-4 text-gray-100">
     <div class="bg-gray-800 rounded-xl shadow-2xl p-8 w-full max-w-2xl border border-gray-700">
         <h1 class="text-4xl font-bold text-white mb-8 text-center drop-shadow-lg">TikTok Slideshow Generator</h1>
+        
+        <!-- Usage Note -->
+        <div class="mb-6 bg-blue-900/30 p-4 rounded-lg border border-blue-700/50">
+            <h2 class="text-lg font-semibold text-blue-300 mb-2">Usage Note</h2>
+            <p class="text-sm text-blue-200">For full functionality, especially folder uploads, this app should be run on a local web server. Simply opening the HTML file directly may limit some features due to browser security restrictions.</p>
+        </div>
 
         <!-- Image Upload Section -->
         <div class="mb-6 bg-gray-700 p-4 rounded-lg shadow-inner">
             <label class="block text-gray-200 text-sm font-bold mb-3" for="imageUpload">
-                Upload up to 20 Images (JPG, PNG)
+                Upload Images (JPG, PNG)
             </label>
-            <input
-                class="shadow appearance-none border border-gray-600 rounded-lg w-full py-3 px-4 bg-gray-900 text-gray-100 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                id="imageUpload" type="file" accept="image/*" multiple>
+            <div class="flex flex-col space-y-4">
+                <div>
+                    <input
+                        class="shadow appearance-none border border-gray-600 rounded-lg w-full py-3 px-4 bg-gray-900 text-gray-100 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        id="imageUpload" type="file" accept="image/*" multiple webkitdirectory directory>
+                    <p class="text-sm text-gray-400 mt-2">Upload a folder containing images (up to 20 images per folder). Each folder will generate a separate video. Note: This feature requires running the app on a local server.</p>
+                </div>
+                <div>
+                    <input
+                        class="shadow appearance-none border border-gray-600 rounded-lg w-full py-3 px-4 bg-gray-900 text-gray-100 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        id="zipUpload" type="file" accept=".zip" >
+                    <p class="text-sm text-gray-400 mt-2">Or upload a ZIP file containing multiple folders of images. Each folder (up to 20 images per folder) will generate a separate video.</p>
+                </div>
+                <div>
+                    <input
+                        class="shadow appearance-none border border-gray-600 rounded-lg w-full py-3 px-4 bg-gray-900 text-gray-100 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        id="singleImageUpload" type="file" accept="image/*" multiple>
+                    <p class="text-sm text-gray-400 mt-2">Or upload individual images (up to 20) for a single video.</p>
+                </div>
+            </div>
             <p class="text-sm text-gray-400 mt-2">Images will be resized and cropped to fill the 9:16 vertical video frame for TikTok.</p>
         </div>
 
@@ -118,19 +143,34 @@
         <!-- Message Box for User Feedback -->
         <div id="messageBox" class="text-center text-sm text-gray-400 mt-4 hidden p-3 bg-gray-700 rounded-lg"></div>
 
-        <!-- Download Area for Generated Video -->
+        <!-- Download Area for Generated Videos -->
         <div id="downloadArea" class="mt-6 text-center hidden">
-            <a id="downloadLink"
-               class="ios-button bg-gradient-to-br from-green-500 to-emerald-700 hover:from-green-600 hover:to-emerald-800 text-white font-bold py-3 px-8 rounded-full shadow-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-gray-800"
-               download="tiktok_slideshow.mp4">
-                Download Video
-            </a>
+            <div id="singleDownloadArea">
+                <a id="downloadLink"
+                   class="ios-button bg-gradient-to-br from-green-500 to-emerald-700 hover:from-green-600 hover:to-emerald-800 text-white font-bold py-3 px-8 rounded-full shadow-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-gray-800 mb-4 inline-block"
+                   download="tiktok_slideshow.mp4">
+                    Download Video
+                </a>
+            </div>
+            <div id="batchDownloadArea" class="hidden">
+                <div id="batchVideoList" class="mb-4 max-h-60 overflow-y-auto bg-gray-900 p-4 rounded-lg text-left">
+                    <!-- Batch videos will be listed here -->
+                </div>
+                <a id="downloadAllLink"
+                   class="ios-button bg-gradient-to-br from-purple-500 to-indigo-700 hover:from-purple-600 hover:to-indigo-800 text-white font-bold py-3 px-8 rounded-full shadow-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-gray-800 inline-block"
+                   href="#">
+                    Download All Videos (.zip)
+                </a>
+            </div>
         </div>
     </div>
 
+    <!-- JSZip library is already included in the head section -->
     <script>
         // Get references to DOM elements
-        const imageUpload = document.getElementById('imageUpload');
+        const imageUpload = document.getElementById('imageUpload'); // For folder uploads
+        const zipUpload = document.getElementById('zipUpload'); // For zip file uploads
+        const singleImageUpload = document.getElementById('singleImageUpload'); // For individual image uploads
         const imageDelayInput = document.getElementById('imageDelay');
         const videoDurationInput = document.getElementById('videoDuration');
         const generateButton = document.getElementById('generateButton');
@@ -138,10 +178,19 @@
         const ctx = videoCanvas.getContext('2d'); // Get 2D rendering context
         const messageBox = document.getElementById('messageBox');
         const downloadArea = document.getElementById('downloadArea');
+        const singleDownloadArea = document.getElementById('singleDownloadArea');
+        const batchDownloadArea = document.getElementById('batchDownloadArea');
+        const batchVideoList = document.getElementById('batchVideoList');
         const downloadLink = document.getElementById('downloadLink');
+        const downloadAllLink = document.getElementById('downloadAllLink');
 
         // State variables
-        let uploadedImages = []; // Stores loaded HTMLImageElement objects
+        let uploadedImages = []; // Stores loaded HTMLImageElement objects for current video
+        let folderImages = {}; // Object to store images by folder path
+        let generatedVideos = []; // Array to store generated video blobs and their names
+        let isBatchMode = false; // Flag to indicate if we're in batch processing mode
+        let currentFolderIndex = 0; // Index of the folder currently being processed
+        let folderPaths = []; // Array of folder paths to process
         let videoRecorder;       // MediaRecorder instance
         let animationFrameId;    // ID for requestAnimationFrame loop
         let currentImageIndex = 0; // Index of the image currently being displayed
@@ -149,9 +198,22 @@
         let totalRecordedTime = 0; // Cumulative time for the video being generated
         let videoDurationMillis = 0; // Total video duration in milliseconds
         let imageDisplayDurationMillis = 0; // How long each image is displayed in milliseconds
+        
+        // Prevent 404 errors for favicon and meta.json
+        window.addEventListener('error', function(e) {
+            // Ignore 404 errors for favicon and meta.json
+            if (e.target.tagName === 'LINK' && e.target.rel === 'icon') {
+                e.preventDefault();
+                return false;
+            }
+            if (e.target.tagName === 'SCRIPT' && e.target.src.includes('meta.json')) {
+                e.preventDefault();
+                return false;
+            }
+        }, true);
         let imageSequenceDurationMillis = 0; // Total time for one full loop of all images
 
-        const MAX_IMAGES = 20; // Maximum number of allowed images
+        const MAX_IMAGES = 20; // Maximum number of allowed images per folder
         const VIDEO_FPS = 30;  // Frames per second for the output video
         // Define a higher bitrate for even better video quality (e.g., 8 Mbps for a 1080p vertical video)
         const VIDEO_BITRATE = 8 * 1024 * 1024; // 8 Megabits per second
@@ -231,23 +293,21 @@
         }
 
         /**
-         * Handles the file selection event when images are uploaded.
-         * Loads images into memory and prepares them for display.
+         * Loads images from files into memory.
+         * @param {FileList} files - The files to load.
+         * @param {Function} callback - Callback function to call with loaded images array.
+         * @param {number} maxImages - Maximum number of images to load.
+         * @returns {Promise} - Promise that resolves when all images are loaded.
          */
-        imageUpload.addEventListener('change', (event) => {
-            uploadedImages = []; // Clear previous images
-            downloadArea.classList.add('hidden'); // Hide download link
-            hideMessage(); // Clear any existing messages
-
-            const files = event.target.files;
+        function loadImagesFromFiles(files, callback, maxImages = MAX_IMAGES) {
             if (files.length === 0) {
                 showMessage('No images selected.', 'info');
-                return;
+                return Promise.reject('No images');
             }
-            if (files.length > MAX_IMAGES) {
-                showMessage(`Please select a maximum of ${MAX_IMAGES} images. You selected ${files.length}.`, 'error');
-                imageUpload.value = ''; // Clear the file input selection
-                return;
+            
+            if (files.length > maxImages) {
+                showMessage(`Please select a maximum of ${maxImages} images per folder. This folder has ${files.length}.`, 'error');
+                return Promise.reject('Too many images');
             }
 
             const filesArray = Array.from(files); // Convert FileList to an array
@@ -266,12 +326,10 @@
                             loadedCount++;
                             // Check if all images have finished loading
                             if (loadedCount === filesArray.length) {
-                                uploadedImages = loadedImagesOrdered; // Assign the ordered array to uploadedImages
-                                if (uploadedImages.length > 0) {
-                                    drawResizedImage(uploadedImages[0]); // Draw the first image as a preview
+                                if (callback) {
+                                    callback(loadedImagesOrdered);
                                 }
-                                showMessage(`${loadedCount} images loaded.`, 'success');
-                                resolve(); // Resolve the promise once all images are loaded
+                                resolve(loadedImagesOrdered); // Resolve the promise with loaded images
                             }
                         };
                         img.onerror = () => {
@@ -285,14 +343,273 @@
                 });
             });
 
-            // Wait for all image loading promises to complete (or one to reject)
-            Promise.all(loadImagePromises)
-                .then(() => {
-                    // All images successfully loaded and ordered
-                })
-                .catch(() => {
-                    showMessage('Some images failed to load.', 'error');
+            return Promise.all(loadImagePromises);
+        }
+
+        /**
+         * Handles the file selection event when individual images are uploaded.
+         */
+        singleImageUpload.addEventListener('change', (event) => {
+            uploadedImages = []; // Clear previous images
+            folderImages = {}; // Clear folder images
+            generatedVideos = []; // Clear generated videos
+            isBatchMode = false; // Set to single mode
+            downloadArea.classList.add('hidden'); // Hide download area
+            singleDownloadArea.classList.remove('hidden'); // Show single download area
+            batchDownloadArea.classList.add('hidden'); // Hide batch download area
+            hideMessage(); // Clear any existing messages
+
+            const files = event.target.files;
+            loadImagesFromFiles(files, (loadedImages) => {
+                uploadedImages = loadedImages;
+                if (uploadedImages.length > 0) {
+                    drawResizedImage(uploadedImages[0]); // Draw the first image as a preview
+                }
+                showMessage(`${loadedImages.length} images loaded for single video.`, 'success');
+            }).catch(() => {
+                singleImageUpload.value = ''; // Clear the file input selection
+                showMessage('Failed to load images for single video.', 'error');
+            });
+        });
+
+        /**
+         * Handles the file selection event when folders of images are uploaded.
+         */
+        imageUpload.addEventListener('change', (event) => {
+            uploadedImages = []; // Clear previous images
+            folderImages = {}; // Clear folder images
+            generatedVideos = []; // Clear generated videos
+            isBatchMode = true; // Set to batch mode
+            downloadArea.classList.add('hidden'); // Hide download area
+            singleDownloadArea.classList.add('hidden'); // Hide single download area
+            batchDownloadArea.classList.remove('hidden'); // Show batch download area
+            hideMessage(); // Clear any existing messages
+
+            const files = event.target.files;
+            if (files.length === 0) {
+                showMessage('No files selected.', 'info');
+                return;
+            }
+
+            // Group files by folder path
+            const filesByFolder = {};
+            Array.from(files).forEach(file => {
+                // Get the folder path (everything before the last slash)
+                const fullPath = file.webkitRelativePath || file.name;
+                const lastSlashIndex = fullPath.lastIndexOf('/');
+                const folderPath = lastSlashIndex !== -1 ? fullPath.substring(0, lastSlashIndex) : '';
+                
+                // Only process image files
+                if (file.type.startsWith('image/')) {
+                    if (!filesByFolder[folderPath]) {
+                        filesByFolder[folderPath] = [];
+                    }
+                    filesByFolder[folderPath].push(file);
+                }
+            });
+
+            // Get folder paths and sort them
+            folderPaths = Object.keys(filesByFolder).sort();
+            
+            if (folderPaths.length === 0) {
+                showMessage('No folders with images found.', 'error');
+                imageUpload.value = ''; // Clear the file input selection
+                return;
+            }
+
+            // Process each folder
+            let totalFolders = folderPaths.length;
+            let processedFolders = 0;
+            let validFolders = 0;
+
+            folderPaths.forEach(folderPath => {
+                const folderFiles = filesByFolder[folderPath];
+                
+                // Skip folders with too many images
+                if (folderFiles.length > MAX_IMAGES) {
+                    showMessage(`Folder '${folderPath}' has ${folderFiles.length} images, which exceeds the limit of ${MAX_IMAGES}. It will be skipped.`, 'error');
+                    processedFolders++;
+                    return;
+                }
+                
+                // Skip folders with no images
+                if (folderFiles.length === 0) {
+                    processedFolders++;
+                    return;
+                }
+
+                // Load images for this folder
+                loadImagesFromFiles(folderFiles, (loadedImages) => {
+                    folderImages[folderPath] = loadedImages;
+                    validFolders++;
+                    processedFolders++;
+                    
+                    // If this is the first valid folder, show a preview
+                    if (validFolders === 1 && loadedImages.length > 0) {
+                        uploadedImages = loadedImages; // Set as current images for preview
+                        drawResizedImage(uploadedImages[0]); // Draw the first image as a preview
+                    }
+                    
+                    // Check if all folders have been processed
+                    if (processedFolders === totalFolders) {
+                        if (validFolders === 0) {
+                            showMessage('No valid folders with images found.', 'error');
+                            imageUpload.value = ''; // Clear the file input selection
+                        } else {
+                            showMessage(`${validFolders} folders with images loaded. Ready to generate ${validFolders} videos.`, 'success');
+                        }
+                    }
+                }, MAX_IMAGES).catch(() => {
+                    processedFolders++;
                 });
+            });
+        });
+
+        /**
+         * Handles the file selection event when a zip file is uploaded.
+         */
+        zipUpload.addEventListener('change', (event) => {
+            uploadedImages = []; // Clear previous images
+            folderImages = {}; // Clear folder images
+            generatedVideos = []; // Clear generated videos
+            isBatchMode = true; // Set to batch mode
+            downloadArea.classList.add('hidden'); // Hide download area
+            singleDownloadArea.classList.add('hidden'); // Hide single download area
+            batchDownloadArea.classList.remove('hidden'); // Show batch download area
+            hideMessage(); // Clear any existing messages
+
+            const file = event.target.files[0];
+            if (!file) {
+                showMessage('No zip file selected.', 'info');
+                return;
+            }
+
+            showMessage('Processing zip file... This may take a moment.', 'info');
+
+            // Read the zip file
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    // Load the zip file content
+                    const zip = await JSZip.loadAsync(e.target.result);
+                    
+                    // Group files by folder path
+                    const filesByFolder = {};
+                    const imagePromises = [];
+                    
+                    // Process each file in the zip
+                    zip.forEach((relativePath, zipEntry) => {
+                        // Skip directories
+                        if (zipEntry.dir) return;
+                        
+                        // Skip __MACOSX folders and hidden files/folders
+                        if (relativePath.startsWith('__MACOSX/') || relativePath.includes('/.') || relativePath.startsWith('.')) return;
+                        
+                        // Skip non-image files (based on extension)
+                        const extension = relativePath.split('.').pop().toLowerCase();
+                        const validImageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
+                        if (!validImageExtensions.includes(extension)) return;
+                        
+                        // Get the folder path (everything before the last slash)
+                        const lastSlashIndex = relativePath.lastIndexOf('/');
+                        const folderPath = lastSlashIndex !== -1 ? relativePath.substring(0, lastSlashIndex) : '';
+                        const fileName = lastSlashIndex !== -1 ? relativePath.substring(lastSlashIndex + 1) : relativePath;
+                        
+                        // Initialize folder array if needed
+                        if (!filesByFolder[folderPath]) {
+                            filesByFolder[folderPath] = [];
+                        }
+                        
+                        // Add a promise to extract and process this file
+                        const promise = zipEntry.async('blob').then(blob => {
+                            // Create a File object from the blob
+                            const file = new File([blob], fileName, { type: `image/${extension === 'jpg' ? 'jpeg' : extension}` });
+                            filesByFolder[folderPath].push(file);
+                        });
+                        
+                        imagePromises.push(promise);
+                    });
+                    
+                    // Wait for all files to be processed
+                    await Promise.all(imagePromises);
+                    
+                    // Get folder paths and sort them
+                    folderPaths = Object.keys(filesByFolder).sort();
+                    
+                    if (folderPaths.length === 0) {
+                        showMessage('No folders with images found in the zip file.', 'error');
+                        zipUpload.value = ''; // Clear the file input selection
+                        return;
+                    }
+                    
+                    // Process each folder
+                    let totalFolders = folderPaths.length;
+                    let processedFolders = 0;
+                    let validFolders = 0;
+                    
+                    const processFolderPromises = folderPaths.map(folderPath => {
+                        return new Promise(resolve => {
+                            const folderFiles = filesByFolder[folderPath];
+                            
+                            // Skip folders with too many images
+                            if (folderFiles.length > MAX_IMAGES) {
+                                showMessage(`Folder '${folderPath}' has ${folderFiles.length} images, which exceeds the limit of ${MAX_IMAGES}. It will be skipped.`, 'error');
+                                processedFolders++;
+                                resolve();
+                                return;
+                            }
+                            
+                            // Skip folders with no images
+                            if (folderFiles.length === 0) {
+                                processedFolders++;
+                                resolve();
+                                return;
+                            }
+                            
+                            // Load images for this folder
+                            loadImagesFromFiles(folderFiles, (loadedImages) => {
+                                folderImages[folderPath] = loadedImages;
+                                validFolders++;
+                                processedFolders++;
+                                
+                                // If this is the first valid folder, show a preview
+                                if (validFolders === 1 && loadedImages.length > 0) {
+                                    uploadedImages = loadedImages; // Set as current images for preview
+                                    drawResizedImage(uploadedImages[0]); // Draw the first image as a preview
+                                }
+                                
+                                resolve();
+                            }, MAX_IMAGES).catch(() => {
+                                processedFolders++;
+                                resolve();
+                            });
+                        });
+                    });
+                    
+                    // Wait for all folders to be processed
+                    await Promise.all(processFolderPromises);
+                    
+                    // Show final message
+                    if (validFolders === 0) {
+                        showMessage('No valid folders with images found in the zip file.', 'error');
+                        zipUpload.value = ''; // Clear the file input selection
+                    } else {
+                        showMessage(`${validFolders} folders with images loaded from zip file. Ready to generate ${validFolders} videos.`, 'success');
+                    }
+                    
+                } catch (error) {
+                    console.error('Error processing zip file:', error);
+                    showMessage('Error processing zip file. Please make sure it is a valid zip file.', 'error');
+                    zipUpload.value = ''; // Clear the file input selection
+                }
+            };
+            
+            reader.onerror = () => {
+                showMessage('Error reading the zip file.', 'error');
+                zipUpload.value = ''; // Clear the file input selection
+            };
+            
+            reader.readAsArrayBuffer(file);
         });
 
         /**
@@ -356,16 +673,229 @@
         }
 
         /**
-         * Initiates the video generation process.
-         * Gathers user inputs, sets up MediaRecorder, and starts the animation loop.
+         * Generates a single video from the provided images.
+         * @param {Array} images - Array of image objects to use for the video.
+         * @param {string} videoName - Name for the generated video file.
+         * @returns {Promise} - Promise that resolves with the generated video blob.
          */
-        generateButton.addEventListener('click', () => {
-            if (uploadedImages.length === 0) {
-                showMessage('Please upload images first.', 'error');
+        function generateVideo(images, videoName) {
+            return new Promise((resolve, reject) => {
+                if (images.length === 0) {
+                    reject('No images provided');
+                    return;
+                }
+
+                // Get and validate user inputs
+                const imageDelay = parseFloat(imageDelayInput.value);
+                const videoDuration = parseFloat(videoDurationInput.value);
+
+                if (isNaN(imageDelay) || imageDelay < 0 || imageDelay > 1) {
+                    reject('Invalid image delay');
+                    return;
+                }
+                if (isNaN(videoDuration) || videoDuration < 1) {
+                    reject('Invalid video duration');
+                    return;
+                }
+
+                // Convert durations to milliseconds
+                videoDurationMillis = videoDuration * 1000;
+                imageDisplayDurationMillis = imageDelay * 1000;
+
+                // If image delay is 0, set a minimum display duration per image to ensure it's visible for at least one frame
+                if (imageDisplayDurationMillis === 0) {
+                    imageDisplayDurationMillis = 1000 / VIDEO_FPS;
+                }
+
+                // Calculate the total duration for one full sequence of all images
+                imageSequenceDurationMillis = images.length * imageDisplayDurationMillis;
+
+                // Handle edge case where sequence duration might be zero
+                if (imageSequenceDurationMillis === 0) {
+                    reject('Invalid sequence duration');
+                    return;
+                }
+
+                // Set the current images for the animation loop
+                uploadedImages = images;
+                
+                // Draw the first image as a preview
+                if (images.length > 0) {
+                    drawResizedImage(images[0]);
+                }
+
+                // Reset state for a new recording session
+                currentImageIndex = 0;
+                lastFrameTime = 0;
+                totalRecordedTime = 0;
+                
+                // Cancel any previously running animation frame
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                }
+
+                // --- MediaRecorder Setup ---
+                // Get a MediaStream from the canvas, setting the desired FPS for the video output
+                const stream = videoCanvas.captureStream(VIDEO_FPS);
+                // Define recording options based on supported MIME type, including a higher bitrate
+                const options = { mimeType: preferredMimeType, videoBitsPerSecond: VIDEO_BITRATE };
+
+                const chunks = []; // Array to store video data chunks
+
+                // Create a new MediaRecorder instance
+                videoRecorder = new MediaRecorder(stream, options);
+
+                // Event handler for when data chunks are available
+                videoRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        chunks.push(event.data);
+                    }
+                };
+
+                // Event handler for when the recording stops
+                videoRecorder.onstop = () => {
+                    // Create a Blob from the collected data chunks
+                    const blob = new Blob(chunks, { type: preferredMimeType });
+                    resolve({ blob, name: videoName });
+                };
+
+                // Event handler for recording errors
+                videoRecorder.onerror = (event) => {
+                    console.error('MediaRecorder error:', event);
+                    reject('MediaRecorder error');
+                };
+
+                // Start the MediaRecorder, indicating that data should be collected at the desired frame rate
+                videoRecorder.start(1000 / VIDEO_FPS); // Collect data every X milliseconds
+                // Start the requestAnimationFrame loop which drives the canvas drawing
+                animationFrameId = requestAnimationFrame(animate);
+            });
+        }
+
+        /**
+         * Processes the next folder in batch mode.
+         */
+        function processNextFolder() {
+            if (currentFolderIndex >= folderPaths.length) {
+                // All folders processed
+                showMessage(`All ${generatedVideos.length} videos generated successfully!`, 'success');
+                
+                // Display the list of generated videos
+                displayGeneratedVideos();
+                
+                // Re-enable UI elements
+                generateButton.disabled = false;
+                imageUpload.disabled = false;
+                singleImageUpload.disabled = false;
+                imageDelayInput.disabled = false;
+                videoDurationInput.disabled = false;
+                
+                // Show download area
+                downloadArea.classList.remove('hidden');
+                singleDownloadArea.classList.add('hidden');
+                batchDownloadArea.classList.remove('hidden');
                 return;
             }
 
-            // Get and validate user inputs
+            const folderPath = folderPaths[currentFolderIndex];
+            const folderImagesForPath = folderImages[folderPath];
+            
+            if (!folderImagesForPath || folderImagesForPath.length === 0) {
+                // Skip empty folders
+                currentFolderIndex++;
+                processNextFolder();
+                return;
+            }
+
+            // Get folder name from path
+            const folderName = folderPath.split('/').pop() || folderPath;
+            showMessage(`Generating video ${currentFolderIndex + 1} of ${folderPaths.length}: ${folderName}...`, 'info');
+
+            // Generate video for this folder
+            generateVideo(folderImagesForPath, `${folderName}.${outputExtension}`)
+                .then(result => {
+                    // Add to generated videos
+                    generatedVideos.push(result);
+                    currentFolderIndex++;
+                    processNextFolder();
+                })
+                .catch(error => {
+                    console.error('Error generating video:', error);
+                    showMessage(`Error generating video for folder ${folderName}. Skipping.`, 'error');
+                    currentFolderIndex++;
+                    processNextFolder();
+                });
+        }
+
+        /**
+         * Displays the list of generated videos in the batch video list.
+         */
+        function displayGeneratedVideos() {
+            batchVideoList.innerHTML = '';
+            
+            generatedVideos.forEach((video, index) => {
+                const videoUrl = URL.createObjectURL(video.blob);
+                
+                const videoItem = document.createElement('div');
+                videoItem.className = 'flex justify-between items-center p-2 hover:bg-gray-800 rounded';
+                
+                const videoName = document.createElement('span');
+                videoName.textContent = video.name;
+                videoName.className = 'text-gray-200';
+                
+                const downloadButton = document.createElement('a');
+                downloadButton.href = videoUrl;
+                downloadButton.download = video.name;
+                downloadButton.className = 'ios-button bg-gradient-to-br from-green-500 to-emerald-700 hover:from-green-600 hover:to-emerald-800 text-white text-sm font-bold py-1 px-3 rounded-full shadow-sm focus:outline-none';
+                downloadButton.textContent = 'Download';
+                
+                videoItem.appendChild(videoName);
+                videoItem.appendChild(downloadButton);
+                batchVideoList.appendChild(videoItem);
+            });
+        }
+
+        /**
+         * Creates a zip file containing all generated videos.
+         */
+        function createVideoZip() {
+            const zip = new JSZip();
+            
+            // Add each video to the zip file
+            const promises = generatedVideos.map((video, index) => {
+                return new Promise((resolve) => {
+                    zip.file(video.name, video.blob);
+                    resolve();
+                });
+            });
+            
+            // When all videos are added, generate the zip file
+            Promise.all(promises).then(() => {
+                zip.generateAsync({ type: 'blob' }).then(content => {
+                    // Create a download link for the zip file
+                    const zipUrl = URL.createObjectURL(content);
+                    const a = document.createElement('a');
+                    a.href = zipUrl;
+                    a.download = 'tiktok_slideshows.zip';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                });
+            });
+        }
+
+        // Set up the download all link
+        downloadAllLink.addEventListener('click', (event) => {
+            event.preventDefault();
+            createVideoZip();
+        });
+
+        /**
+         * Initiates the video generation process.
+         * Handles both single video and batch mode.
+         */
+        generateButton.addEventListener('click', () => {
+            // Validate common inputs
             const imageDelay = parseFloat(imageDelayInput.value);
             const videoDuration = parseFloat(videoDurationInput.value);
 
@@ -378,92 +908,78 @@
                 return;
             }
 
-            // Convert durations to milliseconds
-            videoDurationMillis = videoDuration * 1000;
-            imageDisplayDurationMillis = imageDelay * 1000;
-
-            // If image delay is 0, set a minimum display duration per image to ensure it's visible for at least one frame
-            if (imageDisplayDurationMillis === 0) {
-                imageDisplayDurationMillis = 1000 / VIDEO_FPS;
-            }
-
-            // Calculate the total duration for one full sequence of all images
-            imageSequenceDurationMillis = uploadedImages.length * imageDisplayDurationMillis;
-
-            // Handle edge case where sequence duration might be zero (e.g., no images or zero calculated duration)
-            if (imageSequenceDurationMillis === 0) {
-                 showMessage('Cannot generate video with current settings. Please ensure images are loaded and delay is valid.', 'error');
-                 return;
-            }
-
-
-            showMessage('Generating video... Please wait. This may take a moment.', 'info');
             // Disable UI elements during generation
             generateButton.disabled = true;
             imageUpload.disabled = true;
+            singleImageUpload.disabled = true;
             imageDelayInput.disabled = true;
             videoDurationInput.disabled = true;
             downloadArea.classList.add('hidden'); // Hide previous download link
 
-            // Reset state for a new recording session
-            currentImageIndex = 0;
-            lastFrameTime = 0;
-            totalRecordedTime = 0;
-            // Cancel any previously running animation frame
-            if (animationFrameId) {
-                cancelAnimationFrame(animationFrameId);
-            }
-
-            // --- MediaRecorder Setup ---
-            // Get a MediaStream from the canvas, setting the desired FPS for the video output
-            const stream = videoCanvas.captureStream(VIDEO_FPS);
-            // Define recording options based on supported MIME type, including a higher bitrate
-            const options = { mimeType: preferredMimeType, videoBitsPerSecond: VIDEO_BITRATE };
-
-            const chunks = []; // Array to store video data chunks
-
-            // Create a new MediaRecorder instance
-            videoRecorder = new MediaRecorder(stream, options);
-
-            // Event handler for when data chunks are available
-            videoRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    chunks.push(event.data);
+            if (isBatchMode) {
+                // Batch mode - process multiple folders
+                if (Object.keys(folderImages).length === 0) {
+                    showMessage('Please upload folders with images first.', 'error');
+                    generateButton.disabled = false;
+                    imageUpload.disabled = false;
+                    singleImageUpload.disabled = false;
+                    imageDelayInput.disabled = false;
+                    videoDurationInput.disabled = false;
+                    return;
                 }
-            };
-
-            // Event handler for when the recording stops
-            videoRecorder.onstop = () => {
-                // Create a Blob from the collected data chunks
-                const blob = new Blob(chunks, { type: preferredMimeType });
-                // Create a URL for the Blob
-                const videoUrl = URL.createObjectURL(blob);
-                downloadLink.href = videoUrl; // Set the download link's href
-                downloadLink.download = `tiktok_slideshow.${outputExtension}`; // Set the download filename
-                downloadArea.classList.remove('hidden'); // Show the download area
-                showMessage(`Video generated successfully as .${outputExtension}! Click "Download Video" below.`, 'success');
-                // Re-enable UI elements
-                generateButton.disabled = false;
-                imageUpload.disabled = false;
-                imageDelayInput.disabled = false;
-                videoDurationInput.disabled = false;
-            };
-
-            // Event handler for recording errors
-            videoRecorder.onerror = (event) => {
-                console.error('MediaRecorder error:', event);
-                showMessage('An error occurred during video recording. Please try again.', 'error');
-                // Re-enable UI elements on error
-                generateButton.disabled = false;
-                imageUpload.disabled = false;
-                imageDelayInput.disabled = false;
-                videoDurationInput.disabled = false;
-            };
-
-            // Start the MediaRecorder, indicating that data should be collected at the desired frame rate
-            videoRecorder.start(1000 / VIDEO_FPS); // Collect data every X milliseconds
-            // Start the requestAnimationFrame loop which drives the canvas drawing
-            animationFrameId = requestAnimationFrame(animate);
+                
+                // Reset batch processing state
+                currentFolderIndex = 0;
+                generatedVideos = [];
+                
+                // Start processing folders
+                showMessage(`Starting batch processing of ${folderPaths.length} folders...`, 'info');
+                processNextFolder();
+            } else {
+                // Single video mode
+                if (uploadedImages.length === 0) {
+                    showMessage('Please upload images first.', 'error');
+                    generateButton.disabled = false;
+                    imageUpload.disabled = false;
+                    singleImageUpload.disabled = false;
+                    imageDelayInput.disabled = false;
+                    videoDurationInput.disabled = false;
+                    return;
+                }
+                
+                showMessage('Generating video... Please wait. This may take a moment.', 'info');
+                
+                // Generate a single video
+                generateVideo(uploadedImages, `tiktok_slideshow.${outputExtension}`)
+                    .then(result => {
+                        // Create a URL for the Blob
+                        const videoUrl = URL.createObjectURL(result.blob);
+                        downloadLink.href = videoUrl; // Set the download link's href
+                        downloadLink.download = result.name; // Set the download filename
+                        downloadArea.classList.remove('hidden'); // Show the download area
+                        singleDownloadArea.classList.remove('hidden'); // Show single download area
+                        batchDownloadArea.classList.add('hidden'); // Hide batch download area
+                        showMessage(`Video generated successfully as .${outputExtension}! Click "Download Video" below.`, 'success');
+                        
+                        // Re-enable UI elements
+                        generateButton.disabled = false;
+                        imageUpload.disabled = false;
+                        singleImageUpload.disabled = false;
+                        imageDelayInput.disabled = false;
+                        videoDurationInput.disabled = false;
+                    })
+                    .catch(error => {
+                        console.error('Error generating video:', error);
+                        showMessage('An error occurred during video recording. Please try again.', 'error');
+                        
+                        // Re-enable UI elements on error
+                        generateButton.disabled = false;
+                        imageUpload.disabled = false;
+                        singleImageUpload.disabled = false;
+                        imageDelayInput.disabled = false;
+                        videoDurationInput.disabled = false;
+                    });
+            }
         });
 
         // Initial drawing on the canvas when the page loads
