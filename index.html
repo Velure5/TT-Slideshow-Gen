@@ -24,15 +24,18 @@
             /* Added max-height and width to make it responsive on smaller screens */
             max-width: 90vw; /* Max 90% of viewport width */
             max-height: 80vh; /* Max 80% of viewport height to leave space for controls */
-            height: auto; /* Maintain aspect ratio */
+            aspect-ratio: 9/16; /* Maintain TikTok's 9:16 aspect ratio */
+            width: auto; /* Let width be determined by the aspect ratio */
+            height: auto; /* Let height be determined by the aspect ratio */
             box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5); /* Stronger shadow for dark mode depth */
         }
 
         /* Ensure the canvas scales down for smaller screens */
         @media (max-width: 768px) {
             canvas {
-                width: 100%; /* Make canvas fill width on small screens */
-                height: calc(100vw * (1920 / 1080)); /* Maintain 9:16 aspect ratio */
+                width: auto; /* Let width be determined by the aspect ratio */
+                max-width: 100%; /* Make canvas fill width on small screens */
+                aspect-ratio: 9/16; /* Maintain TikTok's 9:16 aspect ratio */
                 max-height: 60vh; /* Adjust max height for mobile to fit controls */
             }
         }
@@ -102,10 +105,10 @@
                     <p class="text-sm text-gray-400 mt-2">Or upload individual images (up to 20) for a single video.</p>
                 </div>
             </div>
-            <p class="text-sm text-gray-400 mt-2">Images will be resized and cropped to fill the 9:16 vertical video frame for TikTok.</p>
+            <p class="text-sm text-gray-400 mt-2">Images will be displayed in the 9:16 vertical video frame for TikTok based on your selected fitting mode.</p>
         </div>
 
-        <!-- Video Settings Section (Delay and Duration) -->
+        <!-- Video Settings Section (Delay, Duration, and Fitting Mode) -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
             <div class="bg-gray-700 p-4 rounded-lg shadow-inner">
                 <label class="block text-gray-200 text-sm font-bold mb-3" for="imageDelay">
@@ -125,6 +128,22 @@
                     id="videoDuration" type="number" min="1" value="15">
                 <p class="text-sm text-gray-400 mt-2">The image sequence will loop to fill this duration.</p>
             </div>
+        </div>
+        
+        <!-- Image Fitting Mode Selection -->
+        <div class="mb-6 bg-gray-700 p-4 rounded-lg shadow-inner">
+            <label class="block text-gray-200 text-sm font-bold mb-3" for="imageFittingMode">
+                Image Fitting Mode
+            </label>
+            <select
+                class="shadow appearance-none border border-gray-600 rounded-lg w-full py-3 px-4 bg-gray-900 text-gray-100 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                id="imageFittingMode">
+                <option value="fill">Fill (Crop to Fill Frame)</option>
+                <option value="contain">Contain (Fit Entire Image)</option>
+                <option value="cover">Cover (Cover Frame)</option>
+                <option value="stretch">Stretch (Stretch to Fill)</option>
+            </select>
+            <p class="text-sm text-gray-400 mt-2">Choose how images should be displayed in the 9:16 TikTok frame.</p>
         </div>
 
         <!-- Canvas for Video Preview/Generation -->
@@ -173,6 +192,7 @@
         const singleImageUpload = document.getElementById('singleImageUpload'); // For individual image uploads
         const imageDelayInput = document.getElementById('imageDelay');
         const videoDurationInput = document.getElementById('videoDuration');
+        const imageFittingModeSelect = document.getElementById('imageFittingMode'); // For image fitting mode
         const generateButton = document.getElementById('generateButton');
         const videoCanvas = document.getElementById('videoCanvas');
         const ctx = videoCanvas.getContext('2d'); // Get 2D rendering context
@@ -255,41 +275,104 @@
         }
 
         /**
-         * Draws an image onto the canvas, scaling and cropping it to perfectly fill the 9:16 canvas.
-         * No black bars will be added; parts of the image may be cut off if aspect ratios don't match.
+         * Draws an image onto the canvas based on the selected fitting mode.
          * @param {HTMLImageElement} image - The image object to draw.
          */
         function drawResizedImage(image) {
             const canvasWidth = videoCanvas.width;
             const canvasHeight = videoCanvas.height;
             ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-            ctx.fillStyle = '#000000'; // Fill with black, though images should cover this now
+            ctx.fillStyle = '#000000'; // Fill with black background
             ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
             const imageAspectRatio = image.width / image.height;
-            const canvasAspectRatio = canvasWidth / canvasHeight; // This is now 9/16
-
+            const canvasAspectRatio = canvasWidth / canvasHeight; // 9:16 for TikTok
+            
+            // Get the current fitting mode from the select element
+            const fittingMode = imageFittingModeSelect.value;
+            
+            // Variables for source and destination rectangles
             let sx, sy, sWidth, sHeight; // Source rectangle (portion of the image to draw)
-
-            if (imageAspectRatio > canvasAspectRatio) {
-                // Image is wider than the canvas aspect ratio (e.g., landscape image on portrait canvas)
-                // We need to crop the image horizontally to fit the canvas height.
-                sHeight = image.height;
-                sWidth = sHeight * canvasAspectRatio; // Calculate source width based on canvas aspect ratio
-                sx = (image.width - sWidth) / 2;      // Center horizontally in the source
-                sy = 0;
-            } else {
-                // Image is taller than or equal to canvas aspect ratio (e.g., portrait or square image on portrait canvas)
-                // We need to crop the image vertically to fit the canvas width.
-                sWidth = image.width;
-                sHeight = sWidth / canvasAspectRatio; // Calculate source height based on canvas aspect ratio
-                sx = 0;
-                sy = (image.height - sHeight) / 2;    // Center vertically in the source
+            let dx, dy, dWidth, dHeight; // Destination rectangle (where to draw on canvas)
+            
+            switch(fittingMode) {
+                case 'fill': // Crop to fill (original behavior)
+                    if (imageAspectRatio > canvasAspectRatio) {
+                        // Image is wider than canvas - crop sides
+                        sHeight = image.height;
+                        sWidth = sHeight * canvasAspectRatio;
+                        sx = (image.width - sWidth) / 2;
+                        sy = 0;
+                    } else {
+                        // Image is taller than canvas - crop top/bottom
+                        sWidth = image.width;
+                        sHeight = sWidth / canvasAspectRatio;
+                        sx = 0;
+                        sy = (image.height - sHeight) / 2;
+                    }
+                    // Draw to fill entire canvas
+                    ctx.drawImage(image, sx, sy, sWidth, sHeight, 0, 0, canvasWidth, canvasHeight);
+                    break;
+                    
+                case 'contain': // Fit entire image with possible letterboxing
+                    if (imageAspectRatio > canvasAspectRatio) {
+                        // Image is wider - will have black bars on top and bottom
+                        dWidth = canvasWidth;
+                        dHeight = dWidth / imageAspectRatio;
+                        dx = 0;
+                        dy = (canvasHeight - dHeight) / 2;
+                    } else {
+                        // Image is taller - will have black bars on sides
+                        dHeight = canvasHeight;
+                        dWidth = dHeight * imageAspectRatio;
+                        dx = (canvasWidth - dWidth) / 2;
+                        dy = 0;
+                    }
+                    // Draw the entire image with letterboxing
+                    ctx.drawImage(image, 0, 0, image.width, image.height, dx, dy, dWidth, dHeight);
+                    break;
+                    
+                case 'cover': // Cover the entire canvas (similar to fill but ensures the entire canvas is covered)
+                    if (imageAspectRatio > canvasAspectRatio) {
+                        // Image is wider - scale to match canvas height and crop sides
+                        const scale = canvasHeight / image.height;
+                        const scaledWidth = image.width * scale;
+                        dx = (canvasWidth - scaledWidth) / 2;
+                        dy = 0;
+                        dWidth = scaledWidth;
+                        dHeight = canvasHeight;
+                    } else {
+                        // Image is taller - scale to match canvas width and crop top/bottom
+                        const scale = canvasWidth / image.width;
+                        const scaledHeight = image.height * scale;
+                        dx = 0;
+                        dy = (canvasHeight - scaledHeight) / 2;
+                        dWidth = canvasWidth;
+                        dHeight = scaledHeight;
+                    }
+                    // Draw the image to cover the canvas
+                    ctx.drawImage(image, 0, 0, image.width, image.height, dx, dy, dWidth, dHeight);
+                    break;
+                    
+                case 'stretch': // Stretch to fill regardless of aspect ratio
+                    // Draw the image stretched to fill the entire canvas
+                    ctx.drawImage(image, 0, 0, image.width, image.height, 0, 0, canvasWidth, canvasHeight);
+                    break;
+                    
+                default: // Default to fill mode
+                    if (imageAspectRatio > canvasAspectRatio) {
+                        sHeight = image.height;
+                        sWidth = sHeight * canvasAspectRatio;
+                        sx = (image.width - sWidth) / 2;
+                        sy = 0;
+                    } else {
+                        sWidth = image.width;
+                        sHeight = sWidth / canvasAspectRatio;
+                        sx = 0;
+                        sy = (image.height - sHeight) / 2;
+                    }
+                    ctx.drawImage(image, sx, sy, sWidth, sHeight, 0, 0, canvasWidth, canvasHeight);
             }
-
-            // Draw the cropped source image onto the entire canvas area (destination rectangle)
-            // dx, dy, dWidth, dHeight correspond to the canvas's full dimensions (0, 0, canvasWidth, canvasHeight)
-            ctx.drawImage(image, sx, sy, sWidth, sHeight, 0, 0, canvasWidth, canvasHeight);
         }
 
         /**
@@ -982,6 +1065,14 @@
             }
         });
 
+        // Add event listener for image fitting mode changes
+        imageFittingModeSelect.addEventListener('change', () => {
+            // If there's an image already uploaded, redraw it with the new fitting mode
+            if (uploadedImages.length > 0) {
+                drawResizedImage(uploadedImages[0]);
+            }
+        });
+
         // Initial drawing on the canvas when the page loads
         ctx.clearRect(0, 0, videoCanvas.width, videoCanvas.height);
         ctx.fillStyle = '#000000'; // Set background color to black
@@ -992,7 +1083,7 @@
         ctx.fillStyle = '#9ca3af'; /* Gray-400 for dark mode */
         ctx.fillText('Upload images to start', videoCanvas.width / 2, videoCanvas.height / 2 - 30);
         ctx.font = '22px Inter';
-        ctx.fillText('(Images will fill the 9:16 frame)', videoCanvas.width / 2, videoCanvas.height / 2 + 10);
+        ctx.fillText('(Images will be displayed based on fitting mode)', videoCanvas.width / 2, videoCanvas.height / 2 + 10);
     </script>
 </body>
 </html>
